@@ -210,4 +210,38 @@ else
 fi
 pass 'newline filenames are either preserved exactly or rejected before publication'
 
+reset_case
+printf '%s\n' 'test-only-private-key' > /credentials/id_ed25519
+printf '%s\n' 'test-only-known-hosts' > /credentials/known_hosts
+chmod 666 /credentials/id_ed25519 /credentials/known_hosts
+publish
+cmp /credentials/id_ed25519 /root/.ssh/id_ed25519 || fail 'job did not prepare its SSH key'
+cmp /credentials/known_hosts /root/.ssh/known_hosts || fail 'job did not prepare its known hosts'
+[ "$(stat -c %a /root/.ssh)" = 700 ] || fail 'SSH directory permissions are not private'
+for credential in id_ed25519 known_hosts; do
+    [ "$(stat -c %a "/root/.ssh/$credential")" = 600 ] || fail 'SSH credential permissions are not private'
+done
+ssh_command=$(sh -c '. /app/common.sh; load_settings; printf "%s" "$GIT_SSH_COMMAND"')
+[ "$ssh_command" = 'ssh -F /app/ssh_config' ] || fail 'Git does not use the static SSH configuration'
+ssh -G -F /app/ssh_config git@github.com > /tmp/ssh-settings.txt 2>/dev/null
+grep -Eq '^stricthostkeychecking (yes|true)$' /tmp/ssh-settings.txt || fail 'SSH host verification is not strict'
+grep -qx 'batchmode yes' /tmp/ssh-settings.txt || fail 'SSH could prompt interactively'
+grep -qx 'identitiesonly yes' /tmp/ssh-settings.txt || fail 'SSH could use unrelated identities'
+grep -qx 'identityfile /root/.ssh/id_ed25519' /tmp/ssh-settings.txt || fail 'SSH does not use the prepared key'
+grep -qx 'userknownhostsfile /root/.ssh/known_hosts' /tmp/ssh-settings.txt || fail 'SSH does not use the prepared host keys'
+pass 'publishing prepares private SSH credentials and uses strict static SSH settings'
+
+printf '%s\n' 'rotated-test-only-private-key' > /credentials/id_ed25519
+printf '%s\n' 'rotated-test-only-known-hosts' > /credentials/known_hosts
+publish
+cmp /credentials/id_ed25519 /root/.ssh/id_ed25519 || fail 'job did not refresh its rotated SSH key'
+cmp /credentials/known_hosts /root/.ssh/known_hosts || fail 'job did not refresh its rotated host keys'
+pass 'the next publishing job refreshes rotated credentials without restarting cron'
+
+rm /credentials/id_ed25519 /credentials/known_hosts
+publish
+[ ! -e /root/.ssh/id_ed25519 ] && [ ! -e /root/.ssh/known_hosts ] \
+    || fail 'job retained credentials that were removed from the mounted source'
+pass 'removed credential sources do not leave stale keys in the runtime directory'
+
 printf '\n%s client integration checks passed.\n' "$passed"

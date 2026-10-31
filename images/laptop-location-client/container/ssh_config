@@ -1,0 +1,9 @@
+Host *
+    IdentityFile /root/.ssh/id_ed25519
+    IdentitiesOnly yes
+    BatchMode yes
+    StrictHostKeyChecking yes
+    UserKnownHostsFile /root/.ssh/known_hosts
+    ConnectTimeout 15
+    ServerAliveInterval 10
+    ServerAliveCountMax 2

@@ -4,6 +4,7 @@ set -eu
 project_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 image=${TEST_IMAGE:-laptop-location-client:device-report-test}
 docker build -t "$image" "$project_dir"
+sh "$project_dir/tests/cron-runtime.sh" "$image"
 docker run --rm --network none --read-only \
     --tmpfs /tmp:mode=1777,exec --tmpfs /config --tmpfs /jobs --tmpfs /input --tmpfs /deployment \
     --tmpfs /credentials --tmpfs /data --tmpfs /root/.ssh --tmpfs /var/run \

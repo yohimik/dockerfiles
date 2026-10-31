@@ -1,4 +1,7 @@
 # Five cron fields: minute hour day-of-month month day-of-week (Sunday = 0).
+# Changes to this mounted file reload automatically; no rebuild or restart.
+# Optional scheduling timezone override, also reloaded from this volume:
+# CRON_TZ=Asia/Dubai
 # Change this schedule to choose when location is captured and pushed.
 0 * * * * /app/push.sh /config/jobs/location.sh >>/proc/1/fd/1 2>>/proc/1/fd/2
 

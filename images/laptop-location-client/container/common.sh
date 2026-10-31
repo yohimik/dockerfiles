@@ -1,5 +1,5 @@
 #!/bin/sh
-# Settings and job files are trusted, executable POSIX shell configuration.
+# Global settings are shell-compatible KEY=value assignments; jobs are trusted shell code.
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
 load_settings() {
@@ -9,12 +9,30 @@ load_settings() {
     GIT_AUTHOR_EMAIL=location-client@localhost
     TZ=Etc/UTC
     [ -r /config/settings.sh ] || fail 'Missing /config/settings.sh'
+    # shellcheck source=/dev/null
     . /config/settings.sh
-    case "$TZ" in ''|/*|*..*|*'\'*) fail 'Invalid timezone' ;; esac
+    case "$TZ" in ''|/*|*..*|*\\*) fail 'Invalid timezone' ;; esac
     [ -f "/usr/share/zoneinfo/$TZ" ] || fail 'Unknown timezone'
     export GIT_URL GIT_BRANCH GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL TZ
     export GIT_TERMINAL_PROMPT=0
-    export GIT_SSH_COMMAND='ssh -F /root/.ssh/config'
+    export GIT_SSH_COMMAND='ssh -F /app/ssh_config'
+}
+
+prepare_ssh() {
+    # Called while holding the shared publishing lock, so jobs never rotate
+    # credentials underneath another Git transport. Windows bind permissions
+    # need not satisfy OpenSSH: the private working copies are always 0600.
+    mkdir -p /root/.ssh
+    chmod 700 /root/.ssh
+    for name in id_ed25519 known_hosts; do
+        if [ -f "/credentials/$name" ]; then
+            cp -- "/credentials/$name" "/root/.ssh/$name.tmp"
+            chmod 600 "/root/.ssh/$name.tmp"
+            mv -- "/root/.ssh/$name.tmp" "/root/.ssh/$name"
+        else
+            rm -f -- "/root/.ssh/$name" "/root/.ssh/$name.tmp"
+        fi
+    done
 }
 
 valid_destination() {
@@ -37,6 +55,7 @@ load_job() {
     FILES_LIST=''
     BEFORE_COMMAND=''
     TIMEOUT_SECONDS=300
+    # shellcheck source=/dev/null
     . "$job_path"
     case "$JOB_NAME" in ''|*[!A-Za-z0-9_-]*) fail 'Set JOB_NAME using letters, digits, _ or -' ;; esac
     [ "${#JOB_NAME}" -le 64 ] || fail 'JOB_NAME is too long'

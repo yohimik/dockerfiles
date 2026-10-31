@@ -3,6 +3,8 @@ services:
   client:
     build: .
     image: laptop-location-client:local
+    env_file:
+      - ./config/settings.sh
     restart: unless-stopped
     init: true
     read_only: true

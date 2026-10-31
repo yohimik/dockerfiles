@@ -2,7 +2,9 @@
 
 A Docker client implemented with cron and POSIX `.sh` scripts. It captures location from a configured provider, reports machine specifications and model name, copies selected files, and commits and pushes them to the Git URL in its configuration. It can also run other scheduled shell commands.
 
-The same Linux container runs on Docker Engine for Linux and Docker Desktop for macOS or Windows. On Windows, run the setup script from Git Bash or WSL. The image uses standard command-line tools: Git, OpenSSH, jq, curl, coreutils, and flock. It contains no Python or native host helper code.
+The same Linux container runs on Docker Engine for Linux and Docker Desktop for macOS or Windows. On Windows, run the setup script from Git Bash or WSL. The image uses Git, OpenSSH, jq, curl, coreutils, flock, and [Supercronic](https://github.com/aptible/supercronic), a cron runner for containers. It contains no Python or native host helper code.
+
+The Dockerfile has a prepared stage for dependencies and scripts, followed by a runtime stage that defines only the cron entrypoint. Supercronic reads `/config/crontab` directly and watches the mounted file for changes. No schedule, settings, or credentials are baked into the image.
 
 Precise location requires an external host location provider. A Linux container cannot itself call macOS or Windows Location Services. The `bridge` mode lets an existing host provider respond when cron requests a fresh fix; `command` mode runs a configured command that returns location JSON. No approximate-IP fallback is enabled.
 
@@ -12,8 +14,8 @@ Edit or replace these files. There is no separate environment file.
 
 | File | Purpose |
 | --- | --- |
-| `config/settings.sh` | Git URL, branch, commit author and IANA timezone. |
-| `config/crontab` | Normal five-field cron schedules, including arbitrary shell jobs. |
+| `config/settings.sh` | Shell-compatible `KEY=value` assignments for Git settings and runtime timezone; also loaded by Compose as an `env_file`. |
+| `config/crontab` | Live five-field cron schedules, including arbitrary shell jobs and an optional `CRON_TZ` override. |
 | `config/jobs/*.sh` | Location options, extra-file list, pre-command and timeout for each publishing job. |
 | `config/files.tsv` | Tab-separated source and destination paths. |
 | `config/device.json` | Optional model-name and machine-field overrides. |
@@ -31,17 +33,27 @@ GIT_AUTHOR_EMAIL='location-client@localhost'
 TZ='Etc/UTC'
 ```
 
-The `.sh` settings are trusted executable shell configuration. Keep secrets out of them. To change location capture from hourly to every two hours, edit its line in `config/crontab`:
+Keep `config/settings.sh` to simple `KEY=value` assignments and comments so both Compose and the shell can read it. Other `.sh` job/configuration files remain trusted executable shell code. Keep secrets out of these files. To change location capture from hourly to every two hours, edit its line in `config/crontab`:
 
 ```cron
 0 */2 * * * /app/push.sh /config/jobs/location.sh >>/proc/1/fd/1 2>>/proc/1/fd/2
 ```
 
-Use numeric cron fields with ranges, lists and steps. Sunday is `0`; this BusyBox cron does not support the `7` alias or `@reboot`. The client does not automatically publish on startup. Restart the container after changing its cron schedule, timezone, or credentials:
+The mounted crontab reloads automatically after edits, including replacing it with a newly saved file in the same directory. **Schedule changes require no rebuild or container restart.** Keep the whole `config/` directory mounted as shown in Compose so replacement files remain visible. Save valid, complete crontabs; a malformed schedule causes the cron process to exit and Compose to retry it. Active jobs finish before a reload completes.
+
+Use normal five-field cron syntax with ranges, lists and steps; Sunday is `0`. The supplied jobs run only at their scheduled times, not immediately on startup. To change the scheduling timezone through the volume too, add or edit this line in `config/crontab`:
+
+```cron
+CRON_TZ=Asia/Dubai
+```
+
+Without `CRON_TZ`, scheduling uses `TZ` from `config/settings.sh`. Changing that process environment value requires recreating the container, without rebuilding the image:
 
 ```sh
-docker compose restart
+docker compose up -d --force-recreate
 ```
+
+Git settings and job files are read again on each run. SSH credentials are copied from their read-only mount into private temporary storage under the publishing lock on each job, so credential changes apply on the next run without a restart.
 
 ## Run
 
@@ -102,7 +114,7 @@ The configuration snapshot includes the complete text of every regular file unde
 
 Optional runtime details are explicitly labeled `container_runtime`. The default report has `configuration` and `container_runtime` set to `null`. A failed report generation fails the job before any push; an older cached report is not uploaded as a replacement.
 
-To disable this job, comment out its line in `config/crontab` and restart the container. Each successful report update counts as repository activity for the server's inactivity check, even when the location job fails.
+To disable this job, comment out its line in `config/crontab`; cron reloads the mounted file automatically. Each successful report update counts as repository activity for the server's inactivity check, even when the location job fails.
 
 ## Publishing jobs
 
@@ -189,4 +201,4 @@ The laptop must be awake and Docker running; missed cron times are not replayed.
 
 ## Tests
 
-Run `./tests/run.sh` to build the image and exercise report generation and publishing in a container with networking disabled. The tests use a temporary local Git repository and do not push to GitHub.
+Run `./tests/run.sh` to build the image and exercise report generation, credential preparation, publishing, and live schedule reloads in containers with networking disabled. The tests use mocked hardware, harmless cron commands, and a temporary local Git repository; they do not push to GitHub.

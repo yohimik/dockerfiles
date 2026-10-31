@@ -2,6 +2,7 @@
 set -eu
 umask 077
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# shellcheck source=common.sh
 . /app/common.sh
 [ "$#" -eq 1 ] || fail 'Usage: /app/push.sh /config/jobs/name.sh'
 load_settings
@@ -16,6 +17,7 @@ exec 9>/data/update.lock
 if ! flock -w 3600 9; then
     fail "Job $JOB_NAME timed out waiting for another job"
 fi
+prepare_ssh
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
