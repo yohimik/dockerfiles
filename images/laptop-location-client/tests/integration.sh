@@ -39,7 +39,7 @@ publish() {
     /app/push.sh /config/jobs/device.sh > /tmp/publish.log 2>&1 || fail 'report publishing unexpectedly failed'
 }
 read_report() {
-    git --git-dir "$remote" show "main:${1:-device/client-info.json}" > /tmp/report.json \
+    git --git-dir "$remote" show "main:${1:-device/client-info-Configured-laptop-1.json}" > /tmp/report.json \
         || fail 'report was not committed at the configured destination'
 }
 assert_no_secrets() {
@@ -67,6 +67,9 @@ printf '%s\n' 'included hidden setting' > /config/.hidden
 printf '%s\n' '{"model_name":"Host laptop","model_identifier":"HostModel1","system":"host-os","release":"1.0","architecture":"arm64","cpu_model":"Host CPU","logical_cpus":8,"memory_bytes":17179869184,"hostname":"excluded_host_name","serial":"excluded_host_serial"}' > /input/device-info.json
 publish
 read_report
+if git --git-dir "$remote" cat-file -e main:device/client-info.json 2>/dev/null; then
+    fail 'report was published without the default model and attempt suffix'
+fi
 jq -e '.schema_version == 1 and (.recorded_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
     and .device.model_name == "Configured laptop"
     and .device.model_identifier == "HostModel1"
@@ -101,10 +104,12 @@ first_time=$(jq -r .recorded_at /tmp/report.json)
 first_commit=$(head_commit)
 sleep 1
 publish
-read_report
+read_report device/client-info-Configured-laptop-2.json
 [ "$(jq -r .recorded_at /tmp/report.json)" != "$first_time" ] || fail 'report timestamp did not refresh'
 [ "$(head_commit)" != "$first_commit" ] || fail 'fresh report was not pushed'
-pass 'a later run refreshes the report and creates a new commit'
+git --git-dir "$remote" show main:device/client-info-Configured-laptop-1.json > /tmp/first-report.json
+[ "$(jq -r .recorded_at /tmp/first-report.json)" = "$first_time" ] || fail 'later push replaced the previous attempt report'
+pass 'a later changed report advances the attempt filename and preserves the previous report'
 
 reset_case
 publish
@@ -119,7 +124,7 @@ reset_case
 printf '%s\n' '{"model_name":"","cpu_model":"Configured CPU","memory_bytes":null}' > /config/device.json
 printf '%s\n' '{"model_name":"Detected model","cpu_model":"Detected CPU","logical_cpus":8,"memory_bytes":17179869184,"hostname":"excluded_host_name","serial":"excluded_host_serial","token":"input_secret_should_never_be_published"}' > /input/device-info.json
 publish
-read_report
+read_report device/client-info-Detected-model-1.json
 jq -e '.configuration == null and .container_runtime == null
     and .device.model_name == "Detected model" and .device.cpu_model == "Configured CPU"
     and .device.logical_cpus == 8 and .device.memory_bytes == 17179869184
@@ -140,8 +145,8 @@ pass 'configuration and container information can be disabled'
 reset_case
 printf '/data/generated/device-report.json\treports/custom-device.json\n' > /config/device-files.tsv
 publish
-read_report reports/custom-device.json
-if git --git-dir "$remote" cat-file -e main:device/client-info.json 2>/dev/null; then
+read_report reports/custom-device-Configured-laptop-1.json
+if git --git-dir "$remote" cat-file -e main:device/client-info-Configured-laptop-1.json 2>/dev/null; then
     fail 'report was also written to its old destination'
 fi
 pass 'the publishing destination follows the configurable file mapping'
@@ -233,12 +238,15 @@ pass 'publishing prepares private SSH credentials and uses strict static SSH set
 
 printf '%s\n' 'rotated-test-only-private-key' > /credentials/id_ed25519
 printf '%s\n' 'rotated-test-only-known-hosts' > /credentials/known_hosts
+# Ensure this invocation has a changed local commit even within the same second.
+printf '%s\n' '{"model_name":"Configured laptop","model_identifier":"credential-rotation"}' > /config/device.json
 publish
 cmp /credentials/id_ed25519 /root/.ssh/id_ed25519 || fail 'job did not refresh its rotated SSH key'
 cmp /credentials/known_hosts /root/.ssh/known_hosts || fail 'job did not refresh its rotated host keys'
 pass 'the next publishing job refreshes rotated credentials without restarting cron'
 
 rm /credentials/id_ed25519 /credentials/known_hosts
+printf '%s\n' '{"model_name":"Configured laptop","model_identifier":"credential-removal"}' > /config/device.json
 publish
 [ ! -e /root/.ssh/id_ed25519 ] && [ ! -e /root/.ssh/known_hosts ] \
     || fail 'job retained credentials that were removed from the mounted source'

@@ -1,9 +1,11 @@
 #!/bin/sh
-# Internal worker: invoke /app/push.sh so configuration, locks and timeout apply.
+# Internal capture worker: invoke /app/commit.sh for configuration and locking.
 set -eu
 umask 077
+# shellcheck source=common.sh
 . /app/common.sh
-: "${JOB_NAME:?Run this worker through /app/push.sh}"
+: "${JOB_NAME:?Run this worker through /app/commit.sh}"
+: "${REPOSITORY_DIR:?Set the capture repository directory}"
 job_dir=$(mktemp -d /tmp/location-job.XXXXXX)
 trap 'rm -rf -- "$job_dir"' EXIT
 trap 'exit 129' HUP
@@ -87,54 +89,18 @@ if [ -n "$FILES_LIST" ]; then
         snapshot "$resolved_source" "$target_file"
     done < "$FILES_LIST"
 fi
-[ -s "$job_dir/paths" ] || exit 0
-[ -n "$GIT_URL" ] || fail 'Set GIT_URL in /config/settings.sh'
-git check-ref-format "refs/heads/$GIT_BRANCH" >/dev/null
-git init -q -b "$GIT_BRANCH" "$job_dir/repository"
-cd "$job_dir/repository"
-git config user.name "$GIT_AUTHOR_NAME"
-git config user.email "$GIT_AUTHOR_EMAIL"
-git config core.hooksPath /dev/null
-git remote add -- origin "$GIT_URL"
-
-apply_snapshot() {
-    while IFS= read -r target_file; do
-        remaining=$target_file
-        parent=$job_dir/repository
-        while case "$remaining" in */*) true ;; *) false ;; esac; do
-            component=${remaining%%/*}
-            remaining=${remaining#*/}
-            parent=$parent/$component
-            [ ! -L "$parent" ] || fail 'Remote destination parent is a symlink'
-            mkdir -p -- "$parent"
-        done
-        target=$job_dir/repository/$target_file
-        if [ -L "$target" ]; then rm -f -- "$target"; fi
-        [ ! -d "$target" ] || fail 'Remote destination is a directory'
-        cp -- "$job_dir/stage/$target_file" "$target"
-        git --literal-pathspecs add -f -- "$target_file"
-    done < "$job_dir/paths"
-}
-
-attempt=1
-while [ "$attempt" -le 3 ]; do
-    # Nested timeouts stay in the outer worker process group, so its deadline
-    # also stops any outstanding Git transport processes.
-    if timeout --foreground --kill-after=5 40 git fetch -q --prune origin; then
-        if git show-ref --verify --quiet "refs/remotes/origin/$GIT_BRANCH"; then
-            git checkout -q -B "$GIT_BRANCH" "refs/remotes/origin/$GIT_BRANCH"
-        fi
-        apply_snapshot
-        if ! git diff --cached --quiet; then
-            git commit -q -m "Update $JOB_NAME $(date -u +%FT%TZ)"
-        fi
-        if timeout --foreground --kill-after=5 40 git push -q origin "HEAD:refs/heads/$GIT_BRANCH"; then
-            printf 'Pushed configured files (commit %s).\n' "$(git rev-parse --short HEAD)"
-            exit 0
-        fi
-    fi
-    printf 'Git attempt %s failed.\n' "$attempt" >&2
-    attempt=$((attempt + 1))
-    if [ "$attempt" -le 3 ]; then sleep 5; fi
-done
-exit 1
+while IFS= read -r target_file; do
+    remaining=$target_file
+    parent=$REPOSITORY_DIR
+    while case "$remaining" in */*) true ;; *) false ;; esac; do
+        component=${remaining%%/*}
+        remaining=${remaining#*/}
+        parent=$parent/$component
+        [ ! -L "$parent" ] || fail 'Capture destination parent is a symlink'
+        mkdir -p -- "$parent"
+    done
+    target=$REPOSITORY_DIR/$target_file
+    if [ -L "$target" ]; then rm -f -- "$target"; fi
+    [ ! -d "$target" ] || fail 'Capture destination is a directory'
+    cp -- "$job_dir/stage/$target_file" "$target"
+done < "$job_dir/paths"

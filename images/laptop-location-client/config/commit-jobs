@@ -1,0 +1,4 @@
+# Capture these jobs, then commit all changed files in REPOSITORY_DIR.
+/config/jobs/location.sh
+/config/jobs/device.sh
+# /config/jobs/files.sh

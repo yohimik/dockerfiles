@@ -1,15 +1,6 @@
-# Five cron fields: minute hour day-of-month month day-of-week (Sunday = 0).
 # Changes to this mounted file reload automatically; no rebuild or restart.
-# Optional scheduling timezone override, also reloaded from this volume:
-# CRON_TZ=Asia/Dubai
-# Change this schedule to choose when location is captured and pushed.
-0 * * * * /app/push.sh /config/jobs/location.sh >>/proc/1/fd/1 2>>/proc/1/fd/2
-
-# Publish machine specifications and model name independently of location capture.
-5 * * * * /app/push.sh /config/jobs/device.sh >>/proc/1/fd/1 2>>/proc/1/fd/2
-
-# Example: enable an extra-file job every weekday at 09:30.
-# 30 9 * * 1-5 /app/push.sh /config/jobs/files.sh >>/proc/1/fd/1 2>>/proc/1/fd/2
-
-# Any other shell job may be added directly.
-# */15 * * * * sh /jobs/example.sh >>/proc/1/fd/1 2>>/proc/1/fd/2
+# Optional scheduling timezone override: CRON_TZ=Asia/Dubai
+# Capture and commit all changed files in the configured repository every 30 min.
+*/30 * * * * /app/commit.sh >>/proc/1/fd/1 2>>/proc/1/fd/2
+# Publish committed files every 5 min; conflicted files remain queued for retry.
+*/5 * * * * /app/push.sh >>/proc/1/fd/1 2>>/proc/1/fd/2

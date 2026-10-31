@@ -7,15 +7,39 @@ load_settings() {
     GIT_BRANCH=main
     GIT_AUTHOR_NAME='Laptop Location Client'
     GIT_AUTHOR_EMAIL=location-client@localhost
+    REPOSITORY_DIR=/data/repository
+    COMMIT_JOBS_FILE=/config/commit-jobs
+    PUSH_TIMEOUT_SECONDS=300
     TZ=Etc/UTC
     [ -r /config/settings.sh ] || fail 'Missing /config/settings.sh'
     # shellcheck source=/dev/null
     . /config/settings.sh
     case "$TZ" in ''|/*|*..*|*\\*) fail 'Invalid timezone' ;; esac
     [ -f "/usr/share/zoneinfo/$TZ" ] || fail 'Unknown timezone'
-    export GIT_URL GIT_BRANCH GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL TZ
+    case "$REPOSITORY_DIR" in /data/*) ;; *) fail 'REPOSITORY_DIR must be a dedicated directory under /data' ;; esac
+    valid_destination "${REPOSITORY_DIR#/}"
+    case "$PUSH_TIMEOUT_SECONDS" in ''|*[!0-9]*) fail 'PUSH_TIMEOUT_SECONDS must be an integer' ;; esac
+    [ "${#PUSH_TIMEOUT_SECONDS}" -le 4 ] && [ "$PUSH_TIMEOUT_SECONDS" -ge 5 ] && [ "$PUSH_TIMEOUT_SECONDS" -le 3600 ] \
+        || fail 'PUSH_TIMEOUT_SECONDS must be 5 through 3600'
+    export GIT_URL GIT_BRANCH GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL TZ REPOSITORY_DIR COMMIT_JOBS_FILE PUSH_TIMEOUT_SECONDS
     export GIT_TERMINAL_PROMPT=0
     export GIT_SSH_COMMAND='ssh -F /app/ssh_config'
+}
+
+prepare_repository() {
+    mkdir -p -- "$REPOSITORY_DIR"
+    REPOSITORY_DIR=$(realpath -e -- "$REPOSITORY_DIR")
+    case "$REPOSITORY_DIR" in /data/*) ;; *) fail 'Capture repository resolves outside /data' ;; esac
+    git check-ref-format "refs/heads/$GIT_BRANCH" >/dev/null
+    if [ ! -e "$REPOSITORY_DIR/.git" ]; then
+        git init -q -b "$GIT_BRANCH" "$REPOSITORY_DIR"
+    fi
+    repository_root=$(git -C "$REPOSITORY_DIR" rev-parse --show-toplevel)
+    [ "$repository_root" = "$REPOSITORY_DIR" ] || fail 'REPOSITORY_DIR must be a Git repository root'
+    git -C "$REPOSITORY_DIR" config user.name "$GIT_AUTHOR_NAME"
+    git -C "$REPOSITORY_DIR" config user.email "$GIT_AUTHOR_EMAIL"
+    git -C "$REPOSITORY_DIR" config core.hooksPath /dev/null
+    export REPOSITORY_DIR
 }
 
 prepare_ssh() {

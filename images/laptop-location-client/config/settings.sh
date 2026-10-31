@@ -4,4 +4,7 @@ GIT_URL='git@github.com:YOUR_USER/YOUR_REPOSITORY.git'
 GIT_BRANCH='main'
 GIT_AUTHOR_NAME='Laptop Location Client'
 GIT_AUTHOR_EMAIL='location-client@localhost'
+REPOSITORY_DIR='/data/repository'
+COMMIT_JOBS_FILE='/config/commit-jobs'
+PUSH_TIMEOUT_SECONDS=300
 TZ='Etc/UTC'
