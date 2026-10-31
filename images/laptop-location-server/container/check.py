@@ -18,14 +18,18 @@ import main as repository_function
 
 SETTINGS_FILE = Path("/config/settings.sh")
 CRONTAB_FILE = Path("/config/crontab")
-TOKEN_FILE = Path("/credentials/github_token")
+TOKEN_FILE = Path("/credentials/repository_token")
+GITHUB_TOKEN_FILE = Path("/credentials/github_token")
 DATA_DIR = Path("/data")
 DISABLED_SCHEDULE = "# Repository monitoring completed; daily check removed.\n"
 
 
 def load_settings():
     """Read literal assignments shared with Compose, without executing shell."""
-    settings = {"GITHUB_REPOSITORY": "", "INACTIVITY_DAYS": "30", "TZ": "Etc/UTC"}
+    settings = {
+        "REPOSITORY_PROVIDER": "github", "REPOSITORY": "", "GITHUB_REPOSITORY": "",
+        "INACTIVITY_DAYS": "30", "TZ": "Etc/UTC",
+    }
     for line_number, line in enumerate(SETTINGS_FILE.read_text(encoding="utf-8").splitlines(), 1):
         try:
             words = shlex.split(line, comments=True, posix=True)
@@ -44,10 +48,13 @@ def load_settings():
     if not re.fullmatch(r"[1-9][0-9]{0,4}", days):
         raise ValueError("INACTIVITY_DAYS must be an integer from 1 through 36500")
     settings["INACTIVITY_DAYS"] = int(days)
+    if not settings["REPOSITORY"] and settings["REPOSITORY_PROVIDER"] == "github":
+        settings["REPOSITORY"] = settings["GITHUB_REPOSITORY"]
     # Validate configuration before consulting completion, without needing a
     # credential after a repository has already completed monitoring.
     repository_function._validate_settings(
-        settings["GITHUB_REPOSITORY"], "validation_only", settings["INACTIVITY_DAYS"], None
+        settings["REPOSITORY"], "validation_only", settings["INACTIVITY_DAYS"], None,
+        provider=settings["REPOSITORY_PROVIDER"],
     )
     try:
         ZoneInfo(settings["TZ"])
@@ -86,7 +93,7 @@ def remove_schedule():
         atomic_write(CRONTAB_FILE, DISABLED_SCHEDULE, preserve_metadata=True)
 
 
-def completed_repository(repository):
+def completed_repository(repository, provider):
     completion_file = DATA_DIR / "completed.json"
     if not completion_file.exists():
         return None
@@ -100,12 +107,16 @@ def completed_repository(repository):
             or not isinstance(completion.get("completed_at"), str)
         ):
             raise ValueError
-        repository_function._validate_settings(completion["repository"], "validation_only", 30, None)
+        # Completion records from the original server belong to GitHub.
+        completed_provider = completion.get("provider", "github")
+        repository_function._validate_settings(
+            completion["repository"], "validation_only", 30, None, provider=completed_provider
+        )
         datetime.strptime(completion["completed_at"], "%Y-%m-%dT%H:%M:%SZ")
     except (ValueError, UnicodeError):
         raise ValueError("Invalid completed.json; inspect the saved state before retrying") from None
-    if completion["repository"].lower() == repository.lower():
-        return completion
+    if completed_provider == provider and completion["repository"].lower() == repository.lower():
+        return {**completion, "provider": completed_provider}
     return None
 
 
@@ -118,7 +129,7 @@ def run_check():
         except BlockingIOError:
             return {"status": "skipped", "reason": "check_already_running"}
 
-        completion = completed_repository(settings["GITHUB_REPOSITORY"])
+        completion = completed_repository(settings["REPOSITORY"], settings["REPOSITORY_PROVIDER"])
         if completion is not None:
             remove_schedule()
             return {
@@ -128,18 +139,23 @@ def run_check():
                 "schedule_removed": True,
             }
 
-        token = TOKEN_FILE.read_text(encoding="utf-8").rstrip("\r\n")
+        token_file = TOKEN_FILE
+        if not token_file.exists() and settings["REPOSITORY_PROVIDER"] == "github":
+            token_file = GITHUB_TOKEN_FILE
+        token = token_file.read_text(encoding="utf-8").rstrip("\r\n")
         result = repository_function.check_repository(
-            settings["GITHUB_REPOSITORY"], token, settings["INACTIVITY_DAYS"]
+            settings["REPOSITORY"], token, settings["INACTIVITY_DAYS"],
+            provider=settings["REPOSITORY_PROVIDER"],
         )
         if result["stop_schedule"]:
             completion = {
+                "provider": settings["REPOSITORY_PROVIDER"],
                 "repository": result["repository"],
                 "repository_id": result["repository_id"],
                 "completed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
             # Persist confirmation first. If schedule removal fails, the next
-            # invocation retries it without credentials or another GitHub call.
+            # invocation retries it without credentials or another API call.
             atomic_write(DATA_DIR / "completed.json", json.dumps(completion, sort_keys=True) + "\n")
             remove_schedule()
             result["schedule_removed"] = True

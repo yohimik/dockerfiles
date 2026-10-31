@@ -14,8 +14,12 @@ engine_type=$(docker info --format '{{.OSType}}') || die 'Start Docker before ru
 [ "$engine_type" = linux ] || die 'Use Docker Linux containers for this server.'
 mkdir -p "$project_dir/.state/credentials" "$project_dir/.state/data"
 chmod 700 "$project_dir/.state" "$project_dir/.state/credentials"
-[ -s "$project_dir/.state/credentials/github_token" ] \
-    || die 'Put a GitHub token with repository Administration write permission in .state/credentials/github_token.'
-chmod 600 "$project_dir/.state/credentials/github_token"
+token_file="$project_dir/.state/credentials/repository_token"
+# Existing GitHub installations can retain their old credential filename.
+# The Python job never uses this fallback for Codeberg.
+if [ ! -e "$token_file" ]; then token_file="$project_dir/.state/credentials/github_token"; fi
+[ -s "$token_file" ] \
+    || die 'Put the provider API token in .state/credentials/repository_token (see README for permissions).'
+chmod 600 "$token_file"
 docker compose --project-directory "$compose_dir" up -d --build --force-recreate
 printf '%s\n' 'Daily repository check started. See docker compose logs for results.'

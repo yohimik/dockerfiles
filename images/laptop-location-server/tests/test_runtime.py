@@ -24,6 +24,7 @@ function = runtime.repository_function
 NOW = datetime(2030, 1, 31, 12, 0, 0, tzinfo=timezone.utc)
 REPOSITORY = "test-owner/test-repo"
 TOKEN = "github_pat_test_secret"
+CODEBERG_TOKEN = "codeberg_test_secret"
 SCHEDULE = "0 0 * * * /usr/bin/python3 /app/check.py\n"
 
 
@@ -37,6 +38,16 @@ def repository(*, age=timedelta(days=31), public=False):
     }
 
 
+def codeberg_repository(*, age=timedelta(days=31), public=False):
+    return {
+        "id": 123,
+        "full_name": REPOSITORY,
+        "private": not public,
+        "internal": False,
+        "updated_at": (NOW - age).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
 class CronRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="server-runtime-test-")
@@ -44,7 +55,8 @@ class CronRuntimeTests(unittest.TestCase):
         self.root = Path(self.directory.name)
         self.settings = self.root / "config" / "settings.sh"
         self.crontab = self.root / "config" / "crontab"
-        self.token = self.root / "credentials" / "github_token"
+        self.token = self.root / "credentials" / "repository_token"
+        self.github_token = self.root / "credentials" / "github_token"
         self.data = self.root / "data"
         for directory in (self.settings.parent, self.token.parent, self.data):
             directory.mkdir()
@@ -56,7 +68,8 @@ class CronRuntimeTests(unittest.TestCase):
         self.token.write_text(TOKEN + "\n", encoding="utf-8")
         for name, value in (
             ("SETTINGS_FILE", self.settings), ("CRONTAB_FILE", self.crontab),
-            ("TOKEN_FILE", self.token), ("DATA_DIR", self.data),
+            ("TOKEN_FILE", self.token), ("GITHUB_TOKEN_FILE", self.github_token),
+            ("DATA_DIR", self.data),
         ):
             patcher = mock.patch.object(runtime, name, value)
             patcher.start()
@@ -103,6 +116,7 @@ class CronRuntimeTests(unittest.TestCase):
         self.assert_schedule_removed()
         completed = json.loads((self.data / "completed.json").read_text(encoding="utf-8"))
         self.assertEqual(completed["repository"], REPOSITORY)
+        self.assertEqual(completed["provider"], "github")
         self.assertEqual(completed["repository_id"], 123)
         self.assertIsInstance(completed["completed_at"], str)
         self.assertEqual(self.transport.call_count, 3)
@@ -226,6 +240,141 @@ class CronRuntimeTests(unittest.TestCase):
         self.assertFalse(marker.exists())
         self.transport.assert_not_called()
         self.assert_schedule_retained()
+
+    def test_generic_github_settings_take_precedence_over_legacy_name(self):
+        self.settings.write_text(
+            "REPOSITORY_PROVIDER='github'\nREPOSITORY='test-owner/test-repo'\n"
+            "GITHUB_REPOSITORY='legacy-owner/unused-repo'\nINACTIVITY_DAYS=30\n",
+            encoding="utf-8",
+        )
+        self.transport.return_value = repository(age=timedelta(days=1))
+        code, stdout, stderr = self.run_main()
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(json.loads(stdout)["status"], "active")
+        self.transport.assert_called_once_with(REPOSITORY, TOKEN)
+        self.assert_schedule_retained()
+
+    def test_legacy_github_settings_and_token_file_remain_supported(self):
+        self.token.unlink()
+        self.github_token.write_text(TOKEN + "\n", encoding="utf-8")
+        self.transport.return_value = repository(age=timedelta(days=1))
+        code, stdout, stderr = self.run_main()
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(json.loads(stdout)["status"], "active")
+        self.transport.assert_called_once_with(REPOSITORY, TOKEN)
+        self.assert_schedule_retained()
+
+    def test_codeberg_never_uses_legacy_github_token_file(self):
+        self.settings.write_text(
+            "REPOSITORY_PROVIDER='codeberg'\nREPOSITORY='test-owner/test-repo'\n"
+            "INACTIVITY_DAYS=30\n", encoding="utf-8"
+        )
+        self.token.unlink()
+        self.github_token.write_text(TOKEN + "\n", encoding="utf-8")
+        with mock.patch.object(function, "_codeberg_request") as codeberg:
+            code, stdout, stderr = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertNotIn(TOKEN, stdout + stderr)
+        codeberg.assert_not_called()
+        self.transport.assert_not_called()
+        self.assert_schedule_retained()
+
+    def test_codeberg_requires_generic_repository_setting(self):
+        self.settings.write_text(
+            "REPOSITORY_PROVIDER='codeberg'\nGITHUB_REPOSITORY='test-owner/test-repo'\n"
+            "INACTIVITY_DAYS=30\n", encoding="utf-8"
+        )
+        with mock.patch.object(function, "_codeberg_request") as codeberg:
+            code, _, _ = self.run_main()
+        self.assertEqual(code, 1)
+        codeberg.assert_not_called()
+        self.transport.assert_not_called()
+        self.assert_schedule_retained()
+
+    def test_codeberg_uses_generic_settings_and_token(self):
+        self.settings.write_text(
+            "REPOSITORY_PROVIDER='codeberg'\nREPOSITORY='test-owner/test-repo'\n"
+            "INACTIVITY_DAYS=30\n", encoding="utf-8"
+        )
+        self.token.write_text(CODEBERG_TOKEN + "\n", encoding="utf-8")
+        with mock.patch.object(function, "_codeberg_request") as codeberg:
+            codeberg.return_value = codeberg_repository(age=timedelta(days=1))
+            code, stdout, stderr = self.run_main()
+        self.assertEqual(code, 0, stderr)
+        result = json.loads(stdout)
+        self.assertEqual(result["status"], "active")
+        self.assertEqual(result["provider"], "codeberg")
+        self.assertEqual(result["activity_source"], "updated_at")
+        self.assertNotIn("pushed_at", result)
+        codeberg.assert_called_once_with(REPOSITORY, CODEBERG_TOKEN)
+        self.transport.assert_not_called()
+        self.assert_schedule_retained()
+
+    def test_completion_for_same_name_on_another_provider_does_not_skip_check(self):
+        with mock.patch.object(function, "_codeberg_request") as codeberg:
+            for completed_provider, current_provider in (
+                (None, "codeberg"), ("github", "codeberg"), ("codeberg", "github")
+            ):
+                with self.subTest(completed=completed_provider, current=current_provider):
+                    completion = {
+                        "repository": REPOSITORY, "repository_id": 123,
+                        "completed_at": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    }
+                    if completed_provider is not None:
+                        completion["provider"] = completed_provider
+                    (self.data / "completed.json").write_text(
+                        json.dumps(completion), encoding="utf-8"
+                    )
+                    self.settings.write_text(
+                        "REPOSITORY_PROVIDER='{}'\nREPOSITORY='{}'\nINACTIVITY_DAYS=30\n"
+                        .format(current_provider, REPOSITORY), encoding="utf-8"
+                    )
+                    self.transport.reset_mock()
+                    codeberg.reset_mock()
+                    self.transport.return_value = repository(age=timedelta(days=1))
+                    codeberg.return_value = codeberg_repository(age=timedelta(days=1))
+                    code, stdout, stderr = self.run_main()
+                    self.assertEqual(code, 0, stderr)
+                    result = json.loads(stdout)
+                    self.assertEqual(result["status"], "active")
+                    self.assertEqual(result["provider"], current_provider)
+                    called, unused = ((codeberg, self.transport) if current_provider == "codeberg"
+                                      else (self.transport, codeberg))
+                    called.assert_called_once_with(REPOSITORY, TOKEN)
+                    unused.assert_not_called()
+                    self.assertEqual(self.crontab.read_text(encoding="utf-8"), SCHEDULE)
+
+    def test_codeberg_completion_retries_cleanup_without_credentials_or_api(self):
+        self.settings.write_text(
+            "REPOSITORY_PROVIDER='codeberg'\nREPOSITORY='test-owner/test-repo'\n"
+            "INACTIVITY_DAYS=30\n", encoding="utf-8"
+        )
+        self.token.write_text(CODEBERG_TOKEN + "\n", encoding="utf-8")
+        with mock.patch.object(function, "_codeberg_request") as codeberg:
+            codeberg.side_effect = [
+                codeberg_repository(), codeberg_repository(), codeberg_repository(public=True)
+            ]
+            with mock.patch.object(runtime, "remove_schedule", side_effect=OSError(CODEBERG_TOKEN)):
+                code, stdout, stderr = self.run_main()
+            self.assertEqual(code, 1)
+            self.assertNotIn(CODEBERG_TOKEN, stdout + stderr)
+            completed = json.loads((self.data / "completed.json").read_text(encoding="utf-8"))
+            self.assertEqual(completed["provider"], "codeberg")
+            self.assertEqual(completed["repository"], REPOSITORY)
+            self.assertEqual(codeberg.call_count, 3)
+            self.assertEqual(codeberg.call_args.kwargs, {"method": "PATCH", "data": {"private": False}})
+            self.assertEqual(self.crontab.read_text(encoding="utf-8"), SCHEDULE)
+            codeberg.reset_mock()
+            self.token.unlink()
+            code, stdout, stderr = self.run_main()
+            self.assertEqual(code, 0, stderr)
+            result = json.loads(stdout)
+            self.assertEqual(result["provider"], "codeberg")
+            self.assertEqual(result["status"], "completed")
+            self.assertTrue(result["schedule_removed"])
+            self.assert_schedule_removed()
+            codeberg.assert_not_called()
+            self.transport.assert_not_called()
 
 
 if __name__ == "__main__":
