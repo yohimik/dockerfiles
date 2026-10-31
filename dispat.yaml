@@ -1,0 +1,9 @@
+spaces:
+  images:
+    path: images
+    scripts:
+      build: docker compose build
+      push: docker compose push
+    flow:
+      build: build
+      publish: push

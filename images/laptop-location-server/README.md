@@ -23,7 +23,7 @@ Create a GitHub fine-grained personal access token scoped to the target reposito
 Store the token as a single line in `.state/credentials/github_token`:
 
 ```sh
-cd laptop-location-server
+cd images/laptop-location-server
 mkdir -p .state/credentials
 chmod 700 .state .state/credentials
 # Save your token into .state/credentials/github_token using your editor.
