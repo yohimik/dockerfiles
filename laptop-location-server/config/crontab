@@ -1,0 +1,2 @@
+# Check once per day at midnight in the configured timezone.
+0 0 * * * /app/check.sh >>/proc/1/fd/1 2>>/proc/1/fd/2
