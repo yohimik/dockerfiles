@@ -1,0 +1,35 @@
+name: laptop-location-client
+services:
+  client:
+    build: .
+    image: laptop-location-client:local
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:mode=1777
+      - /root/.ssh:mode=0700
+      - /var/run
+    volumes:
+      - ./config:/config:ro
+      - ./jobs:/jobs:ro
+      - ./compose.yaml:/deployment/compose.yaml:ro
+      - ./Dockerfile:/deployment/Dockerfile:ro
+      - ./.state/credentials:/credentials:ro
+      - ./.state/input:/input:ro
+      - ./.state/bridge/requests:/bridge/requests
+      - ./.state/bridge/responses:/bridge/responses:ro
+      - ./.state/data:/data
+    healthcheck:
+      test: [CMD, /app/healthcheck.sh]
+      start_period: 15s
+      interval: 1m
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '2'
