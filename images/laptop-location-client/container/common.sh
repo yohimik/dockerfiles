@@ -19,8 +19,9 @@ load_settings() {
     case "$REPOSITORY_DIR" in /data/*) ;; *) fail 'REPOSITORY_DIR must be a dedicated directory under /data' ;; esac
     valid_destination "${REPOSITORY_DIR#/}"
     case "$PUSH_TIMEOUT_SECONDS" in ''|*[!0-9]*) fail 'PUSH_TIMEOUT_SECONDS must be an integer' ;; esac
-    [ "${#PUSH_TIMEOUT_SECONDS}" -le 4 ] && [ "$PUSH_TIMEOUT_SECONDS" -ge 5 ] && [ "$PUSH_TIMEOUT_SECONDS" -le 3600 ] \
-        || fail 'PUSH_TIMEOUT_SECONDS must be 5 through 3600'
+    if [ "${#PUSH_TIMEOUT_SECONDS}" -gt 4 ] || [ "$PUSH_TIMEOUT_SECONDS" -lt 5 ] || [ "$PUSH_TIMEOUT_SECONDS" -gt 3600 ]; then
+        fail 'PUSH_TIMEOUT_SECONDS must be 5 through 3600'
+    fi
     export GIT_URL GIT_BRANCH GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL TZ REPOSITORY_DIR COMMIT_JOBS_FILE PUSH_TIMEOUT_SECONDS
     export GIT_TERMINAL_PROMPT=0
     export GIT_SSH_COMMAND='ssh -F /app/ssh_config'
@@ -85,7 +86,9 @@ load_job() {
     [ "${#JOB_NAME}" -le 64 ] || fail 'JOB_NAME is too long'
     case "$LOCATION_MODE" in bridge|command|none) ;; *) fail 'Invalid LOCATION_MODE' ;; esac
     case "$TIMEOUT_SECONDS" in ''|*[!0-9]*) fail 'TIMEOUT_SECONDS must be an integer' ;; esac
-    [ "${#TIMEOUT_SECONDS}" -le 4 ] && [ "$TIMEOUT_SECONDS" -ge 5 ] && [ "$TIMEOUT_SECONDS" -le 3600 ] || fail 'TIMEOUT_SECONDS must be 5 through 3600'
+    if [ "${#TIMEOUT_SECONDS}" -gt 4 ] || [ "$TIMEOUT_SECONDS" -lt 5 ] || [ "$TIMEOUT_SECONDS" -gt 3600 ]; then
+        fail 'TIMEOUT_SECONDS must be 5 through 3600'
+    fi
     valid_destination "$LOCATION_FILE"
     if [ "$LOCATION_MODE" = command ]; then
         [ -n "$LOCATION_COMMAND" ] || fail 'Set LOCATION_COMMAND for command location mode'

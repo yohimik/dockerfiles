@@ -248,8 +248,9 @@ pass 'the next publishing job refreshes rotated credentials without restarting c
 rm /credentials/id_ed25519 /credentials/known_hosts
 printf '%s\n' '{"model_name":"Configured laptop","model_identifier":"credential-removal"}' > /config/device.json
 publish
-[ ! -e /root/.ssh/id_ed25519 ] && [ ! -e /root/.ssh/known_hosts ] \
-    || fail 'job retained credentials that were removed from the mounted source'
+if [ -e /root/.ssh/id_ed25519 ] || [ -e /root/.ssh/known_hosts ]; then
+    fail 'job retained credentials that were removed from the mounted source'
+fi
 pass 'removed credential sources do not leave stale keys in the runtime directory'
 
 printf '\n%s client integration checks passed.\n' "$passed"

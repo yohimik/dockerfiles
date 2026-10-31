@@ -76,7 +76,9 @@ printf 'null\n' > "$work_dir/configuration.json"
 if [ "$INCLUDE_CONFIGURATION" = true ]; then
     # Only these read-only trees are configuration. Reject symlinks and
     # special files rather than following a link into credentials or host input.
-    [ -d /config ] && [ -d /jobs ] && [ -d /deployment ] || fail 'Missing configuration, job-script or deployment directory'
+    if [ ! -d /config ] || [ ! -d /jobs ] || [ ! -d /deployment ]; then
+        fail 'Missing configuration, job-script or deployment directory'
+    fi
     find /config /jobs /deployment ! -type d ! -type f -print > "$work_dir/unsupported"
     [ ! -s "$work_dir/unsupported" ] || fail 'Configuration snapshots do not allow symlinks or special files'
     : > "$work_dir/files.jsonl"
