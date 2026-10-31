@@ -1,0 +1,54 @@
+name: Repository inactivity check
+description: Run the server Python function for a GitHub or Codeberg repository.
+
+inputs:
+  provider:
+    description: Repository provider, github or codeberg.
+    required: false
+    default: github
+  repository:
+    description: Repository to monitor, in OWNER/REPOSITORY form.
+    required: true
+  token:
+    description: Provider API token permitted to change repository visibility.
+    required: true
+  inactivity-days:
+    description: Publish only after strictly more than this many inactive days.
+    required: false
+    default: '30'
+
+outputs:
+  result:
+    description: Complete JSON result from the server function.
+    value: ${{ steps.check.outputs.result }}
+  status:
+    description: active, published, or already_public.
+    value: ${{ steps.check.outputs.status }}
+  stop-schedule:
+    description: String true when the caller should disable its schedule; otherwise false.
+    value: ${{ steps.check.outputs.stop-schedule }}
+  activity-at:
+    description: Provider activity timestamp, or an empty string when unavailable.
+    value: ${{ steps.check.outputs.activity-at }}
+  activity-source:
+    description: pushed_at for GitHub or updated_at for Codeberg.
+    value: ${{ steps.check.outputs.activity-source }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: '3.13'
+    - name: Run server check
+      id: check
+      shell: bash
+      env:
+        ACTION_DIRECTORY: ${{ github.action_path }}
+        REPOSITORY_PROVIDER: ${{ inputs.provider }}
+        REPOSITORY: ${{ inputs.repository }}
+        REPOSITORY_TOKEN: ${{ inputs.token }}
+        INACTIVITY_DAYS: ${{ inputs.inactivity-days }}
+        PYTHONDONTWRITEBYTECODE: '1'
+      run: python "$ACTION_DIRECTORY/run.py"

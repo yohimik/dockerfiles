@@ -7,3 +7,9 @@ spaces:
     flow:
       build: build
       publish: push
+    packages:
+      laptop-location-server:
+        aliasTags:
+          - format: v{major}
+            moving: true
+            channels: [stable]

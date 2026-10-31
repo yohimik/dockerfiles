@@ -4,7 +4,8 @@ on:
   pull_request:
   push:
     branches: ['**']
-    tags: ['v*']
+    # Moving composite-action aliases such as v1 do not publish image versions.
+    tags: ['v*.*.*']
   workflow_dispatch:
 
 permissions:
@@ -43,6 +44,14 @@ jobs:
       - name: Build and run offline tests
         shell: bash
         run: sh "images/$IMAGE_PACKAGE/tests/run.sh"
+      - name: Test server composite action
+        if: matrix.package == 'laptop-location-server'
+        shell: bash
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp:mode=1777 \
+            -v "$GITHUB_WORKSPACE:/repo:ro" --workdir /repo \
+            --entrypoint python3 laptop-location-server:test \
+            -m unittest discover -s .github/actions/server-check/tests -v
 
   publish:
     name: Publish ${{ matrix.package }}

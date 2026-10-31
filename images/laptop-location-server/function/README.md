@@ -2,6 +2,8 @@
 
 `main.py` contains `check_repository()`, a standalone Python function with no third-party dependencies. Copy it into a cloud function, scheduled worker, or any environment with Python and HTTPS access to GitHub or Codeberg. It needs no Docker container, local state, or cloud SDK.
 
+For GitHub Actions, use the [server composite action](../../../.github/actions/server-check), which runs this CLI and exposes its JSON result and scheduling decision as outputs.
+
 Configure your runtime to invoke it once per day. It makes the repository public after **strictly more than 30 days** of inactivity, then calls the supplied schedule-removal callback. GitHub uses `pushed_at`. Codeberg uses `updated_at` conservatively because its API has no equivalent last-push field: pushes refresh the timestamp, and other repository changes may delay publication. The repository's contents and Git history become public. See the [Codeberg schema](https://codeberg.org/swagger.v1.json) and [Forgejo push handling](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/services/repository/push.go).
 
 ## Call the function
