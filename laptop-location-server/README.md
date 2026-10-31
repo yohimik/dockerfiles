@@ -1,5 +1,7 @@
 # Laptop location server
 
+For a cloud function or another Python runtime, use the [portable function](function). It has no third-party dependencies and accepts a callback to remove the hosting scheduler's trigger.
+
 An Alpine container running BusyBox cron and POSIX shell scripts. Once a day it checks the GitHub repository used by the [client](../laptop-location-client). When GitHub's `pushed_at` timestamp is **more than 30 days old**, it changes the repository to public, saves completion, and removes its cron job. This makes the repository's contents and Git history publicly accessible.
 
 Run it on an always-on server independently of the laptop. It uses GitHub's repository API; it does not clone the repository or need the client's SSH deploy key.
