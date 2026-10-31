@@ -2,3 +2,5 @@
 !Dockerfile
 !container
 !container/**
+!function
+!function/main.py

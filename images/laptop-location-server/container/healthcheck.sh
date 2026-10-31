@@ -1,3 +1,3 @@
 #!/bin/sh
 set -eu
-pgrep -x crond >/dev/null
+pgrep -x /usr/bin/supercronic >/dev/null

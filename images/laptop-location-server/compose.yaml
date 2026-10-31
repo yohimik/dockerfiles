@@ -3,6 +3,8 @@ services:
   server:
     build: .
     image: laptop-location-server:local
+    env_file:
+      - ./config/settings.sh
     restart: unless-stopped
     init: true
     read_only: true
@@ -12,7 +14,8 @@ services:
       - /tmp:mode=1777
       - /var/run
     volumes:
-      - ./config:/config:ro
+      # Writable so the completed Python check can retire its own schedule.
+      - ./config:/config
       - ./.state/credentials:/credentials:ro
       - ./.state/data:/data
     healthcheck:

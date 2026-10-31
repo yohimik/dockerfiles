@@ -80,4 +80,4 @@ From this directory, run:
 python3 -m unittest discover -s tests -v
 ```
 
-Tests replace network calls with fixtures and do not change a GitHub repository. The existing [Alpine server](..) remains available for deployments that prefer cron and shell scripts.
+Tests replace network calls with fixtures and do not change a GitHub repository. The [Alpine server](..) runs this same function from cron, adding mounted configuration, locking, durable completion, and automatic schedule removal.

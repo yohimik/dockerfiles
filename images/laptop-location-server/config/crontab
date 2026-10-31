@@ -1,2 +1,4 @@
-# Check once per day at midnight in the configured timezone.
-0 0 * * * /app/check.sh >>/proc/1/fd/1 2>>/proc/1/fd/2
+# Dedicated to this check; cleared automatically after confirmed completion.
+# Mounted-file edits reload without rebuilding or restarting the container.
+# Optional scheduling timezone override: CRON_TZ=Asia/Dubai
+0 0 * * * /usr/bin/python3 /app/check.py >>/proc/1/fd/1 2>>/proc/1/fd/2
